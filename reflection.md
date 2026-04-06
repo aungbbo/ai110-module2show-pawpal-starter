@@ -4,8 +4,15 @@
 
 **a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+The initial UML design uses five classes split into two layers: four data classes that represent the domain objects and one behavior class that contains the scheduling logic.
+
+- **Owner** — Stores the pet owner's name, how many minutes they have available for pet care each day, and an optional list of preferences (e.g. "morning walks"). This class defines the time budget that constrains the schedule.
+- **Pet** — Stores the pet's name, species, and any special needs. It holds a reference to its Owner, linking the two together so the scheduler knows whose constraints to apply.
+- **Task** — Represents a single care activity (e.g. "morning walk"). Each task has a title, a duration in minutes, a priority level (high / medium / low), and an optional category (exercise, feeding, medical, etc.). It also provides a `priority_value()` helper that converts the priority string to a number for sorting.
+- **ScheduleEntry** — Represents one slot in the generated daily plan. It wraps a Task with a start time (in minutes from the beginning of the day) and a reason string that explains why the task was placed at that time. It computes its own end time from the task's duration.
+- **Scheduler** — The central algorithm class. It takes an Owner, a Pet, and a list of Tasks, then produces a list of ScheduleEntry objects via `generate_schedule()`. It also exposes helpers to add/remove tasks and to produce a human-readable explanation of the plan.
+
+Owner, Pet, Task, and ScheduleEntry are implemented as Python dataclasses to keep the code concise and free of boilerplate. Scheduler is a regular class because its primary role is behavior (the scheduling algorithm), not data storage.
 
 **Core user actions:**
 
