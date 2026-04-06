@@ -51,7 +51,7 @@ if st.session_state.owner:
 st.divider()
 
 # ---------------------------------------------------------------------------
-# 2. Add pets  →  Owner.add_pet(Pet(...))
+# 2. Add pets
 # ---------------------------------------------------------------------------
 
 st.subheader("2 · Pets")
@@ -89,6 +89,7 @@ else:
                 if st.button("Remove", key=f"rm_pet_{pet.name}"):
                     owner.remove_pet(pet.name)
                     st.session_state.scheduler = Scheduler(owner)
+                    st.session_state.last_schedule = None
                     st.rerun()
     else:
         st.info("No pets yet.")
@@ -96,7 +97,7 @@ else:
 st.divider()
 
 # ---------------------------------------------------------------------------
-# 3. Add tasks  →  Scheduler.add_task(pet_name, Task(...))
+# 3. Add tasks
 # ---------------------------------------------------------------------------
 
 st.subheader("3 · Tasks")
@@ -116,7 +117,7 @@ if st.session_state.owner and st.session_state.owner.pets:
         with col3:
             priority = st.selectbox("Priority", ["high", "medium", "low"])
         task_desc = st.text_input("Description (optional)", value="")
-        col_cat, col_freq = st.columns(2)
+        col_cat, col_freq, col_time = st.columns(3)
         with col_cat:
             category = st.selectbox(
                 "Category",
@@ -124,6 +125,8 @@ if st.session_state.owner and st.session_state.owner.pets:
             )
         with col_freq:
             frequency = st.selectbox("Frequency", ["daily", "weekly", "as_needed"])
+        with col_time:
+            preferred_time = st.text_input("Preferred time (HH:MM)", value="")
         add_task = st.form_submit_button("Add task")
 
     if add_task:
@@ -137,30 +140,37 @@ if st.session_state.owner and st.session_state.owner.pets:
                     priority=priority,
                     category=category,
                     frequency=frequency,
+                    preferred_time=preferred_time,
                 ),
             )
             st.success(f"Added **{task_title}** to {selected_pet}")
         except ValueError as e:
             st.error(str(e))
 
+    # --- Task table per pet with inline actions ---
     for pet in st.session_state.owner.pets:
         if pet.tasks:
-            st.markdown(f"**{pet.name}'s tasks** — {pet.completion_summary()}")
-            for task in pet.tasks:
-                col_task, col_done, col_rm = st.columns([5, 1, 1])
-                with col_task:
-                    status = "✅" if task.completed else "⬜"
-                    st.write(
-                        f"{status} {task.title} · {task.duration_minutes} min · "
-                        f"{task.priority} · {task.category}"
-                    )
-                with col_done:
+            st.markdown(f"**{pet.name}** — {pet.completion_summary()}")
+            st.table([
+                {
+                    "Status": "✅" if t.completed else "⬜",
+                    "Task": t.title,
+                    "Time": t.preferred_time or "—",
+                    "Duration": f"{t.duration_minutes} min",
+                    "Priority": t.priority.capitalize(),
+                    "Category": t.category.capitalize(),
+                    "Frequency": t.frequency.replace("_", " ").capitalize(),
+                }
+                for t in pet.tasks
+            ])
+            col_actions = st.columns(len(pet.tasks))
+            for idx, task in enumerate(pet.tasks):
+                with col_actions[idx]:
                     if not task.completed:
                         if st.button("Done", key=f"done_{pet.name}_{task.title}"):
-                            task.mark_complete()
+                            pet.complete_task(task.title)
                             st.rerun()
-                with col_rm:
-                    if st.button("✗", key=f"rm_{pet.name}_{task.title}"):
+                    if st.button("Remove", key=f"rm_{pet.name}_{task.title}"):
                         pet.remove_task(task.title)
                         st.rerun()
 else:
@@ -169,13 +179,50 @@ else:
 st.divider()
 
 # ---------------------------------------------------------------------------
-# 4. Generate schedule  →  Scheduler.generate_schedule()
+# 4. Sorted task overview (sort_by_time)
 # ---------------------------------------------------------------------------
 
-st.subheader("4 · Build Schedule")
+st.subheader("4 · Tasks by Preferred Time")
+
+scheduler: Scheduler | None = st.session_state.scheduler
+if scheduler and scheduler.get_all_pending():
+    sorted_tasks = scheduler.sort_by_time()
+    st.table([
+        {
+            "Pet": pet.name,
+            "Task": task.title,
+            "Preferred Time": task.preferred_time or "— (no time set)",
+            "Priority": task.priority.capitalize(),
+            "Duration": f"{task.duration_minutes} min",
+        }
+        for pet, task in sorted_tasks
+    ])
+
+    # --- Conflict warnings shown inline right after the sorted view ---
+    conflicts = scheduler.detect_conflicts()
+    if conflicts:
+        st.warning(
+            f"**{len(conflicts)} scheduling conflict{'s' if len(conflicts) > 1 else ''} detected**\n\n"
+            "The following tasks have overlapping preferred times. "
+            "The scheduler will still build a valid sequential plan, but you may "
+            "want to adjust the times so the plan matches your real-life routine."
+        )
+        for w in conflicts:
+            st.error(w)
+    else:
+        st.success("No scheduling conflicts — all preferred times are clear.")
+else:
+    st.info("Add tasks above to see them sorted by preferred time.")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# 5. Generate schedule
+# ---------------------------------------------------------------------------
+
+st.subheader("5 · Build Schedule")
 
 if st.button("Generate schedule"):
-    scheduler: Scheduler | None = st.session_state.scheduler
     if scheduler is None:
         st.warning("Set up an owner and pets first.")
     elif not scheduler.get_all_pending():
@@ -185,17 +232,56 @@ if st.button("Generate schedule"):
 
 if st.session_state.last_schedule:
     schedule = st.session_state.last_schedule
-    st.markdown("### 📋 Today's Schedule")
-    for entry in schedule:
-        st.markdown(
-            f"**{entry.start_minute}–{entry.end_minute()} min** · "
-            f"[{entry.pet_name}] **{entry.task.title}** — _{entry.reason}_"
-        )
-    st.divider()
-    st.markdown("### Explanation")
-    st.text(st.session_state.scheduler.explain_schedule(schedule))
+    total_min = sum(e.task.duration_minutes for e in schedule)
+    budget = st.session_state.owner.available_minutes
 
+    st.markdown("### 📋 Today's Schedule")
+    st.progress(
+        min(total_min / budget, 1.0),
+        text=f"{total_min} / {budget} min used",
+    )
+
+    st.table([
+        {
+            "Time": f"{e.start_minute}–{e.end_minute()} min",
+            "Pet": e.pet_name,
+            "Task": e.task.title,
+            "Duration": f"{e.task.duration_minutes} min",
+            "Reason": e.reason,
+        }
+        for e in schedule
+    ])
+
+    # --- Conflict warnings inside the schedule view ---
+    if scheduler and scheduler._last_warnings:
+        with st.expander("⚠️ Preferred-time conflicts", expanded=True):
+            st.caption(
+                "These tasks have overlapping preferred times. The schedule "
+                "above sequences them back-to-back, but in real life you "
+                "can't do both at once. Consider adjusting the times."
+            )
+            for w in scheduler._last_warnings:
+                st.warning(w)
+
+    # --- Skipped tasks ---
+    if scheduler:
+        skipped = scheduler._skipped_tasks(schedule)
+        if skipped:
+            with st.expander("Tasks that didn't fit"):
+                for pet, task in skipped:
+                    st.info(
+                        f"**[{pet.name}] {task.title}** — "
+                        f"{task.duration_minutes} min, {task.priority} priority"
+                    )
+
+    st.divider()
+
+    # --- Explanation ---
+    with st.expander("Full explanation"):
+        st.text(scheduler.explain_schedule(schedule))
+
+    # --- Mark complete ---
     if st.button("Mark all scheduled tasks complete"):
-        st.session_state.scheduler.mark_scheduled_complete()
+        scheduler.mark_scheduled_complete()
         st.session_state.last_schedule = None
         st.rerun()

@@ -4,28 +4,22 @@
 
 **a. Initial design**
 
-The initial UML design uses five classes split into two layers: four data classes that represent the domain objects and one behavior class that contains the scheduling logic.
+Five classes in two layers — four dataclasses for data, one regular class for behaviour:
 
-- **Owner** — Stores the pet owner's name, how many minutes they have available for pet care each day, and an optional list of preferences (e.g. "morning walks"). This class defines the time budget that constrains the schedule.
-- **Pet** — Stores the pet's name, species, and any special needs. It holds a reference to its Owner, linking the two together so the scheduler knows whose constraints to apply.
-- **Task** — Represents a single care activity (e.g. "morning walk"). Each task has a title, a duration in minutes, a priority level (high / medium / low), and an optional category (exercise, feeding, medical, etc.). It also provides a `priority_value()` helper that converts the priority string to a number for sorting.
-- **ScheduleEntry** — Represents one slot in the generated daily plan. It wraps a Task with a start time (in minutes from the beginning of the day) and a reason string that explains why the task was placed at that time. It computes its own end time from the task's duration.
-- **Scheduler** — The central algorithm class. It takes an Owner, a Pet, and a list of Tasks, then produces a list of ScheduleEntry objects via `generate_schedule()`. It also exposes helpers to add/remove tasks and to produce a human-readable explanation of the plan.
+- **Owner** — name, available minutes, preferences. Defines the time budget.
+- **Pet** — name, species, special needs. Owns a list of tasks.
+- **Task** — title, duration, priority, category, frequency, preferred time, completion status.
+- **ScheduleEntry** — wraps a Task with a start time and a reason string.
+- **Scheduler** — takes an Owner, aggregates tasks across all pets, produces a list of ScheduleEntries.
 
-Owner, Pet, Task, and ScheduleEntry are implemented as Python dataclasses to keep the code concise and free of boilerplate. Scheduler is a regular class because its primary role is behavior (the scheduling algorithm), not data storage.
-
-**Core user actions:**
-
-1. **Register a pet profile** — The owner provides basic information about themselves and their pet (name, species, and any special needs). This gives the system the context it needs to tailor care recommendations and build a meaningful schedule.
-
-2. **Add and manage care tasks** — The owner creates pet care tasks such as "morning walk," "feed dinner," or "give medication." Each task includes at least a duration and a priority level. The owner can also edit or remove tasks as their pet's routine changes.
-
-3. **Generate a daily care schedule** — The owner requests a daily plan. The system selects and orders tasks based on constraints like available time, task priority, and owner preferences, then presents the schedule along with a brief explanation of why each task was placed at its assigned time.
+Core user actions: register a pet profile, add/manage care tasks, generate a daily schedule.
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+Two key changes during implementation:
+
+1. Removed the `Pet → Owner` back-reference. The initial design had `Pet.__post_init__` auto-register into `owner.pets`, but this caused circular issues in Streamlit's session state. Final design uses explicit `Owner.add_pet()` for a clean one-directional flow: Owner → Pet → Task.
+2. Evolved the Scheduler from single-pet to multi-pet by accepting just an Owner and aggregating tasks across all pets.
 
 ---
 
@@ -33,13 +27,11 @@ Owner, Pet, Task, and ScheduleEntry are implemented as Python dataclasses to kee
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+Three constraints in order: preferred time (chronological `HH:MM`), then priority (high → low), then duration (shorter first). Preferred time outranks priority because a pet owner's day has a natural rhythm — feeding happens at feeding time regardless of priority level.
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The scheduler uses a **greedy algorithm** instead of an optimal knapsack solver. It skips tasks that don't fit the remaining budget even if a different combination would use more time. This is reasonable because pet care schedules are small (5–15 tasks) — the greedy approach is instant, readable, and produces human-sensible plans.
 
 ---
 
@@ -47,13 +39,16 @@ Owner, Pet, Task, and ScheduleEntry are implemented as Python dataclasses to kee
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+- **Design** — brainstormed classes, attributes, and user actions.
+- **Code generation** — built stubs from UML, then iteratively added sorting, conflict detection, and recurrence with specific prompts (e.g. "sort by HH:MM using a lambda key").
+- **Code review** — asked Copilot to review its own output; it found seven issues like stubs returning `None`.
+- **Testing** — described behaviours in plain English; Copilot produced 23 targeted pytest cases.
+
+Most effective features: codebase-aware suggestions via `#file:` references, iterative self-review, and natural-language-to-test translation. Separate chat sessions per phase (design → code → tests → UI) kept context focused.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+Rejected Copilot's `Pet.__post_init__` auto-registration pattern because it silently mutated the Owner on construction, causing duplicate pets on Streamlit page refresh. Replaced it with explicit `Owner.add_pet()` calls. Verified by tracing the object lifecycle in the running app.
 
 ---
 
@@ -61,13 +56,11 @@ Owner, Pet, Task, and ScheduleEntry are implemented as Python dataclasses to kee
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+23 tests across five areas: task completion toggling, task addition with duplicate rejection, chronological sorting correctness, daily/weekly recurrence with attribute preservation, and conflict detection for overlapping/adjacent/multi-way time windows.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+**4 / 5** — Core logic is solid. Gaps: overnight time wrapping, large task-count stress tests, and Streamlit UI end-to-end testing.
 
 ---
 
@@ -75,12 +68,12 @@ Owner, Pet, Task, and ScheduleEntry are implemented as Python dataclasses to kee
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The layered architecture — data classes separate from the Scheduler algorithm — made each feature (conflict detection, recurrence) easy to add without ripple effects.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+Add a time-picker widget instead of free-text `HH:MM`, a completion history log, and task dependencies (e.g. "medication after feeding").
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+**AI works best when you stay in the architect role.** Clear, scoped instructions produce immediately usable output. Vague instructions lead to assumptions that don't fit your design. The developer's job is to decide, verify, and say "no" when needed.

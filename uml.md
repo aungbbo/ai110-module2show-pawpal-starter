@@ -1,4 +1,4 @@
-# PawPal+ UML Class Diagram
+# PawPal+ UML Class Diagram (Final)
 
 ```mermaid
 classDiagram
@@ -9,11 +9,15 @@ classDiagram
         -str priority
         -str category
         -str frequency
+        -str preferred_time
         -bool completed
         +__post_init__() None
         +priority_value() int
+        +is_recurring() bool
+        +next_occurrence() Task
         +mark_complete() None
         +reset() None
+        -_valid_time(t) bool
         +__str__() str
     }
 
@@ -24,6 +28,7 @@ classDiagram
         -list~Task~ tasks
         +add_task(task) None
         +remove_task(title) None
+        +complete_task(title) Task
         +pending_tasks() list~Task~
         +tasks_by_category(category) list~Task~
         +completion_summary() str
@@ -56,12 +61,16 @@ classDiagram
     class Scheduler {
         -Owner owner
         -list~ScheduleEntry~ _last_schedule
+        -list~str~ _last_warnings
         +add_task(pet_name, task) None
         +remove_task(pet_name, title) None
         +get_all_pending() list~tuple~
+        +sort_by_time() list~tuple~
+        +detect_conflicts() list~str~
         +generate_schedule() list~ScheduleEntry~
         +mark_scheduled_complete() None
         +explain_schedule(entries) str
+        -_time_to_minutes(t) int
         -_find_pet(pet_name) Pet
         -_build_reason(task, scheduled) str
         -_skipped_tasks(entries) list~tuple~
@@ -69,6 +78,7 @@ classDiagram
 
     Owner "1" o-- "1..*" Pet : pets
     Pet "1" o-- "*" Task : tasks
+    Task ..> Task : next_occurrence()
     Scheduler --> Owner : uses
     Scheduler ..> Pet : delegates to
     Scheduler --> ScheduleEntry : produces
